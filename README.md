@@ -12,6 +12,8 @@ censorship of adult or explicit material.
 
 ## Quick start
 
+New to this? Follow **[SETUP.md](SETUP.md)** — step-by-step, with what to expect.
+
 ### Windows
 1. Install **Python 3.10+** from [python.org](https://www.python.org/downloads/windows/)
    and tick **“Add python.exe to PATH”** during setup.
