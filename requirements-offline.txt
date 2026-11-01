@@ -1,0 +1,6 @@
+# Optional: fully offline translation (no internet at all).
+# Heavier download (~2 GB with torch). Install on top of requirements.txt only
+# if you want the "Offline NLLB" translation engine.
+torch>=2.2
+transformers>=4.44
+sentencepiece>=0.2.0

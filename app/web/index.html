@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kurdish Sub — Sorani subtitles for any video</title>
+<meta name="description" content="Turn any downloaded video into a video with Kurdish Sorani subtitles burned in. Free, local, no limits.">
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%2322d3a7'/><text y='74' x='50' font-size='62' text-anchor='middle' font-family='serif' fill='%23041014'>ک</text></svg>">
+</head>
+<body>
+<div class="shell">
+
+  <header class="top">
+    <div class="logo">ک</div>
+    <div class="brand">
+      <h1>Kurdish Sub <span class="badge-demo hidden" id="demoBadge">demo mode</span></h1>
+      <p>Kurdish Sorani subtitles for any video · <span class="ku">ژێرنووسی کوردی سۆرانی</span></p>
+    </div>
+    <div class="spacer"></div>
+    <button class="icon-btn" id="btnSettings" title="Settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+        <circle cx="12" cy="12" r="3.2"/>
+        <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1z"/>
+      </svg>
+    </button>
+  </header>
+
+  <!-- ============ STEP 1: choose a video ============ -->
+  <section id="viewChoose">
+    <div class="card">
+      <div id="dropzone" class="dropzone">
+        <div class="dz-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <path d="M7 10l5-5 5 5"/><path d="M12 5v12"/>
+          </svg>
+        </div>
+        <h3>Drop a video here</h3>
+        <p>MP4, MKV, MOV, AVI, WEBM · any length · nothing leaves your computer</p>
+        <p class="dz-ku">ڤیدیۆیەکەت لێرە دابنێ یان هەڵبژێرە</p>
+        <div class="dz-actions">
+          <button class="btn primary" id="btnChoose">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+            Choose a video
+          </button>
+          <button class="btn" id="btnBrowseDisk" title="Open the file picker of this computer (no upload needed)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>
+            Browse this computer
+          </button>
+        </div>
+        <input type="file" id="fileInput" accept="video/*,.mkv,.mov,.avi,.webm,.ts,.m4v" class="hidden">
+      </div>
+
+      <div id="fileSelected" class="hidden fade-in" style="margin-top:20px">
+        <div class="filecard">
+          <div class="thumb" id="thumb"><div class="play-dot"><span>
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          </span></div></div>
+          <div class="filemeta">
+            <p class="fname" id="fName">video.mp4</p>
+            <div class="chips" id="fChips"></div>
+          </div>
+          <button class="icon-btn" id="btnClearFile" title="Choose another video">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- accuracy -->
+    <div class="card" id="accuracyCard" style="opacity:.45;pointer-events:none">
+      <h2>How accurate should the Kurdish subtitles be?</h2>
+      <p class="sub">Five levels — from “just get the gist” to “as good as it gets”. Higher levels use bigger speech models and a smarter translation pass, and take longer.</p>
+      <div class="acc-grid" id="accGrid"></div>
+      <div class="startrow">
+        <button class="btn primary" id="btnStart" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l14 9-14 9z"/></svg>
+          Create Kurdish subtitles
+        </button>
+        <span class="hint" id="startHint">Choose a video first.</span>
+      </div>
+    </div>
+
+    <div class="card" id="historyCard" style="margin-top:18px">
+      <h2>Recent videos</h2>
+      <p class="sub">Files you already worked on in this session.</p>
+      <div class="history" id="history"><div class="skeleton">Nothing yet.</div></div>
+    </div>
+  </section>
+
+  <!-- ============ STEP 2: progress ============ -->
+  <section id="viewProgress" class="hidden">
+    <div class="card">
+      <div class="progress-head">
+        <div>
+          <div class="pct" id="pPct">0%</div>
+          <div class="of" id="pName">video.mp4</div>
+        </div>
+        <div class="right" id="pTimes">
+          <div id="pElapsed">0:00 elapsed</div>
+          <div id="pEta"></div>
+        </div>
+      </div>
+      <div class="bar-wrap"><div class="bar" id="pBar"></div></div>
+      <div class="progress-msg" id="pMsg">Starting …</div>
+
+      <div class="stage-list" id="stageList"></div>
+
+      <div class="result-actions">
+        <button class="btn danger small" id="btnCancel">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          Cancel
+        </button>
+        <span class="hint" id="pTip" style="font-size:12.5px;color:var(--dim);align-self:center"></span>
+      </div>
+      <div id="pNotice"></div>
+    </div>
+  </section>
+
+  <!-- ============ STEP 3: result ============ -->
+  <section id="viewResult" class="hidden">
+    <div class="card">
+      <h2 id="rTitle">Your Kurdish subtitled video</h2>
+      <p class="sub" id="rSub">Subtitles are burned into the picture — the file plays anywhere.</p>
+
+      <div class="player-grid">
+        <div>
+          <div class="video-box"><video id="rVideo" controls playsinline preload="metadata"></video></div>
+          <div class="result-actions">
+            <a class="btn primary" id="rDownload" download>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+              Download video
+            </a>
+            <a class="btn" id="rSrt" download>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+              Download .srt
+            </a>
+            <button class="btn" id="btnRestyle">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+              Change subtitle look
+            </button>
+            <button class="btn hidden" id="rFolder">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+              Show in folder
+            </button>
+            <button class="btn ghost" id="btnNew">New video</button>
+          </div>
+          <div id="rNotice"></div>
+
+          <div id="stylePanel" class="hidden" style="margin-top:18px;border-top:1px solid var(--line);padding-top:16px">
+            <p class="panel-title">Subtitle style</p>
+            <div class="ctrl">
+              <label>Text size <b id="vSize">100%</b></label>
+              <input type="range" id="sSize" min="70" max="170" value="100" step="5">
+            </div>
+            <div class="ctrl">
+              <label>Position <b id="vPos">Bottom</b></label>
+              <select id="sPos">
+                <option value="bottom">Bottom of the screen</option>
+                <option value="lower">Lower third (higher up)</option>
+                <option value="middle">Middle of the screen</option>
+                <option value="top">Top of the screen</option>
+              </select>
+            </div>
+            <div class="switch-row">
+              <span>Also show the original language line above</span>
+              <label class="toggle"><input type="checkbox" id="sBilingual"><span></span></label>
+            </div>
+            <div class="result-actions" style="margin-top:8px">
+              <button class="btn primary small" id="btnApplyStyle">Apply &amp; re-render video</button>
+              <span class="hint" style="font-size:11.5px;color:var(--dim);align-self:center">Re-burning takes a few minutes for long videos.</span>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <p class="panel-title">Kurdish subtitles <span id="rCount" style="color:var(--mint)"></span></p>
+          <div class="cue-list" id="rCues"></div>
+          <p class="hint" style="font-size:11.5px;color:var(--dim);margin-top:10px">Click a line to jump to it in the video. Double-click to fix the Kurdish text.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <p class="footer-note">
+    Free &amp; private — speech recognition and subtitling happen on this computer.<br>
+    <span class="ku">هەموو شتێک بەخۆڕاییە و لەسەر کۆمپیوتەرەکەی خۆت ئەنجام دەدرێت</span>
+  </p>
+</div>
+
+<!-- settings drawer -->
+<div class="drawer-backdrop" id="backdrop"></div>
+<aside class="drawer" id="drawer">
+  <div class="drawer-head">
+    <h3>Settings</h3>
+    <div class="spacer"></div>
+    <button class="icon-btn" id="btnCloseSettings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+  <div class="drawer-body">
+    <div class="field">
+      <label for="setProvider">Translation engine</label>
+      <select id="setProvider"></select>
+      <div class="help" id="providerHelp">Free engines need no account. Gemini gives the most natural Sorani and needs a free API key.</div>
+    </div>
+
+    <div class="field hidden" id="geminiField">
+      <label for="setGeminiKey">Gemini API key</label>
+      <input type="password" id="setGeminiKey" placeholder="paste your free key (AIza…)">
+      <div class="help">Free key from <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>. It is stored only in this app's config file on your computer.</div>
+    </div>
+
+    <div class="field hidden" id="ollamaField">
+      <label for="setOllamaModel">Ollama model</label>
+      <input type="text" id="setOllamaModel" placeholder="qwen2.5:7b">
+      <div class="help">Install <a href="https://ollama.com" target="_blank" rel="noopener">Ollama</a>, then run <code>ollama pull qwen2.5:7b</code>. Fully offline and unlimited.</div>
+    </div>
+
+    <div class="field">
+      <label for="setLang">Spoken language in the video</label>
+      <select id="setLang"></select>
+    </div>
+
+    <div class="field">
+      <label for="setDevice">Processing hardware</label>
+      <select id="setDevice">
+        <option value="auto">Automatic (best available)</option>
+        <option value="cpu">CPU only</option>
+        <option value="cuda">NVIDIA GPU</option>
+      </select>
+      <div class="help" id="deviceHelp"></div>
+    </div>
+
+    <div class="field">
+      <label for="setFont">Subtitle font</label>
+      <select id="setFont">
+        <option value="Noto Naskh Arabic">Naskh — classic, easy to read</option>
+        <option value="Noto Sans Arabic">Sans — modern, cleaner on screen</option>
+      </select>
+    </div>
+
+    <div class="switch-row">
+      <span>Burn the subtitles automatically when finished</span>
+      <label class="toggle"><input type="checkbox" id="setAutoBurn"><span></span></label>
+    </div>
+    <div class="switch-row">
+      <span>Open the app in my browser on start</span>
+      <label class="toggle"><input type="checkbox" id="setOpenBrowser"><span></span></label>
+    </div>
+
+    <div class="field" style="margin-top:18px">
+      <label>Where files are saved</label>
+      <div class="help" id="pathsHelp"></div>
+    </div>
+
+    <div class="result-actions">
+      <button class="btn primary small" id="btnSaveSettings">Save settings</button>
+      <span class="hint" id="settingsSaved" style="font-size:12px;color:var(--mint);opacity:0">Saved ✓</span>
+    </div>
+  </div>
+</aside>
+
+<script src="/app.js"></script>
+</body>
+</html>
