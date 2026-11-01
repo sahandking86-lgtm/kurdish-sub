@@ -1,0 +1,5 @@
+ ┌──────────────┐   ┌──────────────┐   ┌───────────────┐   ┌──────────────┐
+ │ your video   │ → │ speech       │ → │ translate to  │ → │ burn Kurdish │ →  movie.kurdish.mp4
+ │ (drag&drop)  │   │ recognition  │   │ Sorani kurdish│   │ into picture │
+ └──────────────┘   └──────────────┘   └───────────────┘   └──────────────┘
+     5 accuracy levels:  very low · low · medium · high · perfect
