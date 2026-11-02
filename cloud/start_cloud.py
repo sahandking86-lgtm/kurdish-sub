@@ -209,7 +209,8 @@ def start_server(port: int, token: str) -> None:
 
     api_module.ACCESS_TOKEN = token               # also after a re-run in one kernel
     config = uvicorn.Config(api_module.app, host="0.0.0.0", port=port,
-                            log_level="warning", access_log=False)
+                            log_level="warning", access_log=False,
+                            loop="asyncio")
     server = uvicorn.Server(config)
     threading.Thread(target=server.run, daemon=True, name="ksub-uvicorn").start()
 
@@ -285,11 +286,12 @@ def start_tunnel(port: int) -> tuple[subprocess.Popen | None, str]:
 
     def read():
         assert proc.stderr is not None
-        for line in proc.stderr:
-            m = re.search(r"https://[-a-z0-9]+\.trycloudflare\.com", line)
-            if m:
-                found.append(m.group(0))
-                break
+        for line in proc.stderr:          # keep reading for the whole session
+            if not found:
+                m = re.search(r"https://[-a-z0-9]+\.trycloudflare\.com", line)
+                if m:
+                    found.append(m.group(0))
+                    done.set()
         done.set()
 
     threading.Thread(target=read, daemon=True).start()
