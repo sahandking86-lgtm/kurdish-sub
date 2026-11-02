@@ -41,12 +41,21 @@ def ffmpeg_exe() -> str:
 
 
 def ffprobe_exe() -> Optional[str]:
+    """ffprobe that belongs to whichever ffmpeg we are using."""
     env = os.environ.get("KURDISH_SUB_FFPROBE")
     if env and Path(env).exists():
         return env
     local = settings.project_root() / "bin" / ("ffprobe.exe" if sys.platform == "win32" else "ffprobe")
     if local.exists():
         return str(local)
+    # a ffmpeg sitting next to an explicit ffprobe-less build (pyinstaller, conda…)
+    ff = os.environ.get("KURDISH_SUB_FFMPEG")
+    if ff:
+        sibling = Path(ff).with_name(
+            "ffprobe.exe" if sys.platform == "win32" else "ffprobe"
+        )
+        if sibling.exists():
+            return str(sibling)
     return shutil.which("ffprobe")
 
 
@@ -307,24 +316,187 @@ def _style_filter(ass_name: str) -> str:
     return f"ass={name}" + (f":fontsdir={fonts}" if fonts else "")
 
 
+_CPU_ENCODER = "libx264"
+_GPU_ENCODER = "h264_nvenc"
+
+_ENC_LOCK = threading.Lock()
+_ENC_CACHE: Dict[str, bool] = {}
+
+
+def _encoder_listed(name: str) -> bool:
+    """True when this ffmpeg build was compiled with that encoder."""
+    try:
+        p = run([ffmpeg_exe(), "-hide_banner", "-encoders"], timeout=60)
+        text = (p.stdout + p.stderr).decode("utf-8", "ignore")
+    except Exception:
+        return False
+    return any(line.split()[1:2] == [name] for line in text.splitlines() if line.strip())
+
+
+def _nvenc_really_works() -> bool:
+    """A listed encoder can still fail at runtime (old driver, no GPU)."""
+    import tempfile
+
+    tmp = Path(tempfile.mkstemp(suffix=".mp4")[1])
+    try:
+        p = run(
+            [ffmpeg_exe(), "-hide_banner", "-nostdin", "-y", "-loglevel", "error",
+             "-f", "lavfi", "-i", "color=c=black:s=256x144:r=5:d=0.4",
+             "-c:v", _GPU_ENCODER, "-preset", "p1", str(tmp)],
+            timeout=90,
+        )
+        return p.returncode == 0 and tmp.exists() and tmp.stat().st_size > 512
+    except Exception:
+        return False
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+def _lists_encoder(exe: str, name: str) -> bool:
+    try:
+        p = run([exe, "-hide_banner", "-encoders"], timeout=60)
+        text = (p.stdout + p.stderr).decode("utf-8", "ignore")
+    except Exception:
+        return False
+    return any(line.split()[1:2] == [name] for line in text.splitlines() if line.strip())
+
+
+def prefer_hardware_ffmpeg() -> str:
+    """Use whichever ffmpeg on this machine can talk to the graphics card.
+
+    A distro build, the pip build and a static build can differ: one of them may
+    have NVENC while the one we would have picked does not.
+    """
+    candidates: list[str] = []
+    for candidate in (os.environ.get("KURDISH_SUB_FFMPEG"), shutil.which("ffmpeg")):
+        if candidate:
+            candidates.append(candidate)
+    try:
+        import imageio_ffmpeg
+
+        candidates.append(imageio_ffmpeg.get_ffmpeg_exe())
+    except Exception:
+        pass
+    current = ffmpeg_exe()
+    candidates.insert(0, current)
+
+    seen = set()
+    for exe in candidates:
+        if not exe or exe in seen:
+            continue
+        seen.add(exe)
+        if not (Path(exe).exists() or shutil.which(exe)):
+            continue
+        if _lists_encoder(exe, _GPU_ENCODER):
+            os.environ["KURDISH_SUB_FFMPEG"] = exe
+            with _ENC_LOCK:
+                _ENC_CACHE.clear()
+            return exe
+    return current
+
+
+def nvenc_available() -> bool:
+    """Is there a usable NVIDIA hardware encoder right now? (cached)"""
+    with _ENC_LOCK:
+        if "nvenc" in _ENC_CACHE:
+            return _ENC_CACHE["nvenc"]
+        ok = _encoder_listed(_GPU_ENCODER) and _nvenc_really_works()
+        _ENC_CACHE["nvenc"] = ok
+        return ok
+
+
+def resolve_encoder(requested: str = "") -> str:
+    """Pick the video encoder: the GPU one when it works, libx264 otherwise."""
+    want = (requested or "").strip().lower()
+    if want in ("", "auto"):
+        want = (os.environ.get("KURDISH_SUB_ENCODER") or "auto").strip().lower()
+    if want in ("h264_nvenc", "nvenc", "gpu", "cuda"):
+        return _GPU_ENCODER if nvenc_available() else _CPU_ENCODER
+    if want == "libx264":
+        return _CPU_ENCODER
+    return _GPU_ENCODER if nvenc_available() else _CPU_ENCODER
+
+
+def _nvenc_preset(preset: str) -> str:
+    """Translate an x264 preset name into an NVENC preset (p1 fastest … p7 best)."""
+    table = {
+        "ultrafast": "p1", "superfast": "p2", "veryfast": "p2", "faster": "p3",
+        "fast": "p4", "medium": "p4", "slow": "p6", "slower": "p7", "veryslow": "p7",
+    }
+    return table.get((preset or "").lower(), "p4")
+
+
+def encoder_info() -> Dict:
+    name = resolve_encoder()
+    return {
+        "encoder": name,
+        "hardware": name == _GPU_ENCODER,
+        "nvenc_available": nvenc_available(),
+    }
+
+
 def burn(video: Path, ass_file: Path, out: Path, crf: int = 20, preset: str = "medium",
          duration: float = 0.0, progress: Optional[Callable[[float], None]] = None,
          scale_to: int = 0, threads: int = 0,
-         cancel: Optional[threading.Event] = None) -> Path:
-    """Render the video with the ASS subtitle burned into the picture."""
+         cancel: Optional[threading.Event] = None,
+         encoder: str = "") -> Path:
+    """Render the video with the ASS subtitle burned into the picture.
+
+    ``encoder`` may be ``auto`` (default), ``libx264`` (always works, pure CPU) or
+    ``h264_nvenc`` (an NVIDIA graphics card does the encoding). On a cloud GPU
+    NVENC is 10-30x faster than the CPU encoder, which is the difference between
+    a short wait and an hour of fan noise.
+    """
     out.parent.mkdir(parents=True, exist_ok=True)
     work = ass_file.parent
     vf = _style_filter(ass_file.name)
     if scale_to and scale_to > 0:
         vf = f"scale=-2:{scale_to}," + vf
 
+    chosen = resolve_encoder(encoder)
+    order = [chosen] + ([_CPU_ENCODER] if chosen != _CPU_ENCODER else [])
+    last_error: Optional[RuntimeError] = None
+    for name in order:
+        try:
+            return _burn_with(
+                name, video, ass_file, out, vf, crf, preset, duration,
+                progress, threads, cancel,
+            )
+        except RuntimeError as exc:
+            if "__cancelled__" in str(exc):
+                raise
+            last_error = exc
+            if name != _CPU_ENCODER and progress:
+                progress(0.0)  # restart the bar for the slower encoder
+            continue
+    assert last_error is not None
+    raise last_error
+
+
+def _burn_with(name: str, video: Path, ass_file: Path, out: Path, vf: str,
+               crf: int, preset: str, duration: float,
+               progress: Optional[Callable[[float], None]], threads: int,
+               cancel: Optional[threading.Event]) -> Path:
+    work = ass_file.parent
     cmd = [ffmpeg_exe(), "-hide_banner", "-nostdin", "-y", "-i", str(video.resolve())]
     if threads:
         cmd += ["-threads", str(threads)]
+    cmd += ["-map", "0:v:0", "-map", "0:a:0?", "-vf", vf]
+    if name == _GPU_ENCODER:
+        # constqp keeps the quality knob meaningful and avoids libass frames
+        # waiting on a rate-control feedback loop.
+        cmd += [
+            "-c:v", _GPU_ENCODER, "-preset", _nvenc_preset(preset),
+            "-rc", "constqp", "-qp", str(max(1, min(51, int(crf)))),
+            "-spatial_aq", "1", "-pix_fmt", "yuv420p",
+        ]
+    else:
+        cmd += ["-c:v", _CPU_ENCODER, "-preset", preset, "-crf", str(crf),
+                "-pix_fmt", "yuv420p"]
     cmd += [
-        "-map", "0:v:0", "-map", "0:a:0?",
-        "-vf", vf,
-        "-c:v", "libx264", "-preset", preset, "-crf", str(crf), "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart",
         "-max_muxing_queue_size", "2048",
         "-progress", "pipe:1", "-nostats", str(out.resolve()),
@@ -332,7 +504,7 @@ def burn(video: Path, ass_file: Path, out: Path, crf: int = 20, preset: str = "m
 
     env = ffmpeg_env()
     # stderr goes to a file: reading two pipes from one thread deadlocks ffmpeg
-    log_path = work / "ffmpeg-burn.log"
+    log_path = work / f"ffmpeg-burn-{name}.log"
     log_file = open(log_path, "wb")
     try:
         proc = subprocess.Popen(
@@ -368,8 +540,9 @@ def burn(video: Path, ass_file: Path, out: Path, crf: int = 20, preset: str = "m
         raise RuntimeError("__cancelled__")
     if proc.returncode != 0:
         text = _tail_text(log_path, 2000)
-        # Retry with a plain copy of the audio-less filter chain if the audio map failed
-        raise RuntimeError(f"Burning subtitles failed.\n{text}")
+        raise RuntimeError(
+            f"Burning subtitles failed with {name}.\n{text}"
+        )
     return out
 
 

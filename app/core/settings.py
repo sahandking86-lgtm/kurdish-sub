@@ -34,6 +34,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "max_chars": 42,              # per line
     "crf": 20,
     "preset": "medium",
+    "encoder": "auto",            # auto | libx264 | h264_nvenc
     "output_format": "mp4",
     "keep_temp": False,
     "auto_burn": True,            # burn immediately instead of waiting for review
@@ -55,22 +56,47 @@ def app_dir() -> Path:
     return root
 
 
+def _env_dir(name: str) -> Path | None:
+    value = os.environ.get(name)
+    return Path(value).expanduser() if value else None
+
+
 def work_dir() -> Path:
-    d = app_dir() / "work"
+    d = _env_dir("KURDISH_SUB_WORK") or app_dir() / "work"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
 def output_dir() -> Path:
-    d = app_dir() / "output"
+    d = _env_dir("KURDISH_SUB_OUTPUT") or app_dir() / "output"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
 def models_dir() -> Path:
-    d = app_dir() / "models"
+    d = _env_dir("KURDISH_SUB_MODELS") or app_dir() / "models"
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+def mirror_dir() -> Path | None:
+    """Optional folder that receives a copy of every finished file.
+
+    The cloud launcher points this at Google Drive, so results survive after the
+    free Colab machine is switched off.
+    """
+    d = _env_dir("KURDISH_SUB_MIRROR")
+    if not d:
+        return None
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        return None
+    return d
+
+
+def cloud_mode() -> bool:
+    return os.environ.get("KURDISH_SUB_CLOUD") == "1"
 
 
 def config_path() -> Path:

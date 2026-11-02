@@ -158,6 +158,8 @@ class Job:
             "has_output": bool(self.output_path and self.output_path.exists()),
             "has_soft": bool(self.soft_path and self.soft_path.exists()),
             "output_name": self.output_path.name if self.output_path else "",
+            "output_size": (self.output_path.stat().st_size
+                            if self.output_path and self.output_path.exists() else 0),
             "created_at": self.created_at,
         }
         if include_cues:
@@ -207,6 +209,7 @@ class Engine:
             "max_chars": int(cfg.get("max_chars") or 42),
             "crf": int(cfg.get("crf") or 20),
             "preset": cfg.get("preset") or "medium",
+            "encoder": cfg.get("encoder") or "auto",
         }
 
     # ------------------------------------------------------------------
@@ -301,6 +304,7 @@ class Engine:
             subtitles.write_vtt(job.cues, out_dir / f"{stem}.ckb.vtt")
             job.ass_path = self._write_ass(job)
             job.set_stage("format", f"{len(job.cues)} Kurdish subtitles created.", 1.0)
+            self._mirror(job)
 
             # 7. first preview frame -------------------------------------
             self._make_preview(job)
@@ -357,6 +361,27 @@ class Engine:
             bilingual=bool(st.get("bilingual")),
         )
 
+    def _mirror(self, job: Job):
+        """Copy the finished files somewhere else (Google Drive in cloud mode)."""
+        target = S.mirror_dir()
+        if target is None:
+            return
+        try:
+            target.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        for path in (job.srt_path, job.output_path):
+            if not path or not Path(path).exists():
+                continue
+            try:
+                job.message = f"Copying “{Path(path).name}” to your Drive folder …"
+                shutil.copy2(path, target / Path(path).name)
+            except Exception as exc:
+                job.warnings.append(
+                    f"The copy in {target} could not be saved ({exc}). "
+                    "The file is still available here for download."
+                )
+
     def _make_preview(self, job: Job):
         if not job.ass_path or not job.cues:
             return
@@ -386,6 +411,7 @@ class Engine:
                 duration=job.media.get("duration", 0.0),
                 progress=lambda f: job.set_stage("burn", None, f),
                 cancel=job.cancel_event,
+                encoder=job.style.get("encoder") or "auto",
             )
         except RuntimeError as exc:
             if "__cancelled__" in str(exc):
@@ -393,6 +419,7 @@ class Engine:
             raise
         job.output_path = out
         job.set_stage("burn", f"Saved “{out.name}”", 1.0)
+        self._mirror(job)
 
     # ------------------------------------------------------------------
     # public actions
@@ -508,10 +535,15 @@ def system_report(cfg: Optional[dict] = None) -> Dict:
         ffmpeg_ok = Path(ff.ffmpeg_exe()).exists() or shutil.which(ff.ffmpeg_exe()) is not None
     except Exception:
         ffmpeg_ok = False
+    enc = ff.encoder_info()
     return {
         "gpu": gpu_available(),
         "device": device,
         "compute_type": ctype,
+        "encoder": enc["encoder"],
+        "hardware_encoder": enc["hardware"],
+        "cloud": S.cloud_mode(),
+        "mirror_dir": str(S.mirror_dir() or ""),
         "ffmpeg": ffmpeg_ok,
         "ffmpeg_path": ff.ffmpeg_exe(),
         "free_space_gb": S.free_space_gb(S.work_dir()),
