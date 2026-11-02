@@ -75,8 +75,8 @@ You can open the same link on your phone while the computer works.
 ### 5. Make the subtitles
 Exactly like the desktop app:
 
-* **Drop the video** (or *Choose a video*). Big films are now sent in small
-  pieces, so the upload continues where it stopped instead of failing.
+* **Drop the video** (or *Choose a video*). Big films are sent in small pieces,
+  so a dropped connection only repeats the last piece, not the whole film.
 * Pick the accuracy — **High** is a good choice here, it is what the cloud is for.
 * Press **Create Kurdish subtitles** and watch the stages.
 
@@ -99,11 +99,15 @@ Free T4, measured on normal films. “2-hour film” means a typical 1080p movie
 
 | Accuracy | 45-minute episode | 2-hour film | What you get |
 |---|---|---|---|
-| Very low | ~3 min | ~5 min | gist, fastest |
-| Low | ~4 min | ~8 min | good enough to follow |
-| Medium | ~7 min | ~14 min | **good default** |
-| High | ~12 min | ~25 min | what I recommend |
-| Perfect | ~18 min | ~35 min | the best it can do |
+| Very low | ~5 min | ~17 min | gist, fastest |
+| Low | ~6 min | ~19 min | good enough to follow |
+| Medium | ~8 min | ~23 min | **good default** |
+| High | ~11 min | ~30 min | what I recommend |
+| Perfect | ~15 min | ~40 min | the best it can do |
+
+Most of that time is the last step — drawing the subtitles into the picture
+(that is the part that heats a laptop). On a free cloud CPU without the graphics
+encoder it is still ~2× faster than an old laptop at the same level.
 
 For comparison, the same film on an old laptop CPU: 1–6 **hours**, plus heat.
 

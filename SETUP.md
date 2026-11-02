@@ -9,7 +9,7 @@ Time needed: **about 5 minutes** (+ one-time downloads on the first video).
 > **Is your laptop old or does it get very hot?** You do not have to install
 > anything at all: **[docs/CLOUD.md](docs/CLOUD.md)** runs the same app on a free
 > Google GPU and your computer only shows a web page. A film that needs hours
-> here takes about 25 minutes there.
+> here takes about half an hour there.
 
 ---
 

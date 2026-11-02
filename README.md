@@ -20,7 +20,7 @@ New to this? Follow **[SETUP.md](SETUP.md)** — step-by-step, with what to expe
 > ▶ Run all, use the link it prints:
 > **[`cloud/Kurdish_Sub_Cloud.ipynb`](cloud/Kurdish_Sub_Cloud.ipynb)** ·
 > full guide in **[docs/CLOUD.md](docs/CLOUD.md)**.
-> A 2-hour film that takes hours on a laptop CPU takes about 25 minutes there.
+> A 2-hour film that takes hours on a laptop CPU takes roughly half an hour there.
 
 ### Windows
 1. Install **Python 3.10+** from [python.org](https://www.python.org/downloads/windows/)
