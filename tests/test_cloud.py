@@ -157,3 +157,59 @@ def test_folder_overrides(tmp_path, monkeypatch):
     assert settings.cloud_mode() is False
     monkeypatch.setenv("KURDISH_SUB_CLOUD", "1")
     assert settings.cloud_mode() is True
+
+
+# --------------------------------------------------------------------------
+# a broken graphics card must never lose the video
+# --------------------------------------------------------------------------
+def test_gpu_problem_falls_back_to_the_cpu(monkeypatch):
+    import sys
+    import types
+
+    import app.core.transcriber as T
+    from app.core.tiers import get_tier
+
+    calls = []
+
+    class FakeWhisper:
+        def __init__(self, name, device, compute_type, **kwargs):
+            calls.append((name, device, compute_type))
+            if device == "cuda":
+                raise RuntimeError("Could not load library libcudnn_ops.so.9")
+
+        def transcribe(self, *a, **kw):      # pragma: no cover - not used here
+            return iter([]), types.SimpleNamespace(language="en", duration=1.0)
+
+    monkeypatch.setitem(sys.modules, "faster_whisper", types.SimpleNamespace(WhisperModel=FakeWhisper))
+    monkeypatch.setattr(T, "resolve_device", lambda cfg: ("cuda", "float16"))
+    T._MODEL_CACHE.clear()
+
+    transcriber = T.Transcriber({"device": "cuda", "compute_type": "float16"})
+    transcriber.load(get_tier("medium"))
+
+    assert transcriber.device == "cpu"
+    assert transcriber.compute_type == "int8"
+    assert transcriber.load_note == "gpu_fallback"
+    assert [c[1] for c in calls] == ["cuda", "cpu"]
+    T._MODEL_CACHE.clear()
+
+
+def test_unrelated_model_errors_still_report_downloads(monkeypatch):
+    import sys
+    import types
+
+    import app.core.transcriber as T
+    from app.core.tiers import get_tier
+
+    class FakeWhisper:
+        def __init__(self, name, device, compute_type, **kwargs):
+            raise RuntimeError("Connection refused while downloading from huggingface.co")
+
+    monkeypatch.setitem(sys.modules, "faster_whisper", types.SimpleNamespace(WhisperModel=FakeWhisper))
+    monkeypatch.setattr(T, "resolve_device", lambda cfg: ("cpu", "int8"))
+    T._MODEL_CACHE.clear()
+
+    with pytest.raises(T.TranscribeError) as err:
+        T.Transcriber({"device": "cpu"}).load(get_tier("tiny"))
+    assert "could not be downloaded" in str(err.value)
+    T._MODEL_CACHE.clear()

@@ -311,7 +311,7 @@ async function startJob() {
 
 /* ---------------- resumable, piece-by-piece upload ---------------- */
 async function uploadInPieces(file) {
-  const CHUNK = 8 * 1024 * 1024;
+  const CHUNK = 4 * 1024 * 1024;
   const setBar = (sentBytes) => {
     const pct = (sentBytes / Math.max(1, file.size)) * 100;
     $("#pBar").style.width = `${pct * 0.08}%`;

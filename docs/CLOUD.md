@@ -152,7 +152,7 @@ engine back to **Automatic**.
 | The link says “private” | Copy the **whole** address from cell 4, `?token=…` included |
 | The link does not open at all | Use the copy of the interface printed *inside* the notebook — it is the same app |
 | “Lost connection” in the app | The Colab session died. Run cell 4 again, open the new link; finished files are still in the Files panel |
-| Upload looks stuck at 0 % | The file is being sent in 8 MB pieces; on a slow line this takes a while. Progress is shown in MB |
+| Upload looks stuck at 0 % | The file is being sent in 4 MB pieces; on a slow line this takes a while. Progress is shown in MB |
 | Everything is slow | Look at cell 1: is it really a T4? Pick a lower accuracy level |
 | Colab closed itself while a long film rendered | Run the **keep awake** cell (last cell) for long films |
 
@@ -181,7 +181,7 @@ You do not need any of this to start.
   start → keep-awake.
 * **`KURDISH_SUB_TOKEN`** — a private key, so a public link is useless to others.
 * **Resumable uploads** (`POST /api/uploads/start|…/part|…/finish`) — tunnels and
-  weak connections refuse one request over 100 MB, so the page sends 8 MB pieces.
+  weak connections refuse one request over 100 MB, so the page sends 4 MB pieces.
 * **NVENC burning** — when an NVIDIA card is present the video is encoded by it
   instead of the CPU (`KURDISH_SUB_ENCODER=auto|libx264|h264_nvenc`). On a free
   cloud CPU the app now uses `ultrafast`, which turns a 5-hour render into ~20

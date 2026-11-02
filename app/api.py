@@ -305,7 +305,7 @@ def upload_start(req: UploadStart):
         json.dumps({"name": name, "size": int(req.size or 0), "created": time.time()}),
         encoding="utf-8",
     )
-    return {"upload_id": uid, "chunk_size": 8 * 1024 * 1024}
+    return {"upload_id": uid, "chunk_size": 4 * 1024 * 1024}
 
 
 @app.post("/api/uploads/{uid}/part")

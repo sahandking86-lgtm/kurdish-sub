@@ -118,6 +118,32 @@ def prepare_environment(args) -> dict:
     return {"home": home}
 
 
+def preload_cuda_libs() -> None:
+    """Load the CUDA parts ourselves before CTranslate2 asks for them.
+
+    ``LD_LIBRARY_PATH`` changed inside a running Python process is ignored by the
+    system loader, so a plain export in the cell would not help. Loading each
+    library by absolute path does.
+    """
+    info = Path(tempfile.gettempdir()) / "ksub-cuda-libs"
+    if not info.exists():
+        return
+    import ctypes
+
+    loaded = 0
+    for folder in [p for p in info.read_text().split("\n") if p.strip()]:
+        for pattern in ("libcudnn_ops.so*", "libcudnn_cnn.so*", "libcudnn.so*",
+                        "libcublas.so*", "libcublasLt.so*", "libcudart.so*"):
+            for lib in sorted(Path(folder).glob(pattern)):
+                try:
+                    ctypes.CDLL(str(lib), mode=ctypes.RTLD_GLOBAL)
+                    loaded += 1
+                except OSError:
+                    pass
+    if loaded:
+        say(f"  🧩 Pre-loaded {loaded} NVIDIA libraries for the GPU")
+
+
 def configure_app(args) -> None:
     """Sensible cloud defaults, written into the normal settings file."""
     sys.path.insert(0, str(ROOT))
@@ -126,6 +152,7 @@ def configure_app(args) -> None:
     from app.core.transcriber import gpu_available        # noqa: E402
 
     ff.prefer_hardware_ffmpeg()
+    preload_cuda_libs()
     enc = ff.encoder_info()
     patch = {
         "device": "cuda" if gpu_available() else "cpu",
@@ -273,6 +300,15 @@ def start_tunnel(port: int) -> tuple[subprocess.Popen | None, str]:
     return proc, found[0]
 
 
+def colab_available() -> bool:
+    try:
+        import google.colab  # type: ignore  # noqa: F401
+
+        return True
+    except Exception:
+        return False
+
+
 def colab_frame(port: int) -> bool:
     """Show the interface inside the notebook (works without any tunnel)."""
     try:
@@ -336,7 +372,7 @@ def main(argv=None) -> int:
     say(f"  ⚙  Web server ready on port {port}")
 
     iframe_port = 0
-    if not args.no_iframe and in_notebook():
+    if not args.no_iframe and in_notebook() and colab_available():
         candidate = free_port(port + 1)
         if start_embedded_copy(candidate, home / "preview.log"):
             iframe_port = candidate
@@ -368,7 +404,11 @@ def main(argv=None) -> int:
             {"url": "", "port": port, "token": token, "iframe_port": iframe_port,
              "tunnel_pid": 0, "started": time.time()}, indent=2))
         banner("Kurdish Sub is running (no public link)")
-        say(f"  Local address: http://127.0.0.1:{port}/?token={token}")
+        if args.no_tunnel:
+            say(f"  Local address: http://127.0.0.1:{port}/?token={token}")
+        else:
+            say("  The public link could not be created this time.")
+            say("  Use the identical preview just below this cell.")
         say()
 
     if iframe_port:

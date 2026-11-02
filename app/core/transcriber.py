@@ -32,6 +32,15 @@ class TranscribeError(RuntimeError):
     pass
 
 
+CUDA_HINTS = ("cudnn", "cublas", "cuda", "libcudart", "no kernel image",
+              "cannot open shared object", "not found or cannot be loaded")
+
+
+def _looks_like_gpu_problem(exc: Exception) -> bool:
+    text = f"{type(exc).__name__}: {exc}".lower()
+    return any(hint in text for hint in CUDA_HINTS)
+
+
 def gpu_available() -> bool:
     try:
         import ctranslate2
@@ -154,22 +163,51 @@ class Transcriber:
                     cpu_threads=int(self.cfg.get("cpu_threads") or 0),
                     num_workers=1,
                 )
-                with _CACHE_LOCK:
-                    _MODEL_CACHE[key] = model
-                self.model, self.model_name = model, name
-                if watcher:
-                    watcher.stop()
-                status(f"Speech model ready ({name}, {device}).")
-                return model
             except Exception as exc:
-                if watcher:
-                    watcher.stop()
-                errors.append(f"{name}: {exc}")
-                if cancel and cancel.is_set():
-                    raise TranscribeError("Cancelled.")
-                status(f"Model “{name}” could not be used, trying the next size …")
-                continue
+                # A broken CUDA/cuDNN library must never lose the whole video:
+                # the same model on the CPU is slow but correct.
+                if device != "cpu" and _looks_like_gpu_problem(exc):
+                    status("The graphics card could not be used — finishing on the CPU "
+                           "(slower, same result).")
+                    device, ctype = "cpu", "int8"
+                    self.device, self.compute_type = device, ctype
+                    self.load_note = "gpu_fallback"
+                    try:
+                        model = WhisperModel(
+                            name,
+                            device=device,
+                            compute_type=ctype,
+                            download_root=str(settings.models_dir()),
+                            cpu_threads=int(self.cfg.get("cpu_threads") or 0),
+                            num_workers=1,
+                        )
+                    except Exception as exc2:
+                        if watcher:
+                            watcher.stop()
+                        errors.append(f"{name}: {exc2}")
+                        status(f"Model “{name}” could not be used, trying the next size …")
+                        continue
+                else:
+                    if watcher:
+                        watcher.stop()
+                    errors.append(f"{name}: {exc}")
+                    if cancel and cancel.is_set():
+                        raise TranscribeError("Cancelled.")
+                    status(f"Model “{name}” could not be used, trying the next size …")
+                    continue
+            key = f"{name}|{device}|{ctype}"
+            with _CACHE_LOCK:
+                _MODEL_CACHE[key] = model
+            self.model, self.model_name = model, name
+            if watcher:
+                watcher.stop()
+            status(f"Speech model ready ({name}, {device}).")
+            return model
+        gpu_problem = any(_looks_like_gpu_problem(Exception(e)) for e in errors)
         raise TranscribeError(
+            ("The graphics card could not be used and the CPU fallback failed.\n"
+             "Run  python cloud/doctor.py --fix  (or choose Automatic in Settings).\n\n")
+            if gpu_problem else
             "The speech model could not be downloaded.\n\n"
             "The models come from huggingface.co and are downloaded only once "
             f"(they are stored in {settings.models_dir()}).\n"
