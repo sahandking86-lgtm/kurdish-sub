@@ -1,6 +1,10 @@
 """HTTP API + static hosting for the Kurdish Sub desktop app."""
 from __future__ import annotations
 
+import hashlib
+import json
+import os
+import re
 import shutil
 import threading
 import time
@@ -8,8 +12,8 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -25,6 +29,15 @@ app = FastAPI(title="Kurdish Sub", version="1.0.0", docs_url="/api/docs")
 engine = Engine()
 
 UPLOAD_DIR = S.work_dir() / "uploads"
+CHUNK_DIR = UPLOAD_DIR / "chunks"
+
+# Cloud launchers set this so a public link is useless to anybody else.
+ACCESS_TOKEN = os.environ.get("KURDISH_SUB_TOKEN", "").strip()
+
+VIDEO_EXTS = {".mp4", ".mkv", ".mov", ".avi", ".webm", ".m4v", ".mpg", ".mpeg",
+              ".wmv", ".flv", ".ts", ".m2ts", ".3gp", ".ogv"}
+
+_UID_RE = re.compile(r"^[a-f0-9]{12,40}$")
 
 
 # --------------------------------------------------------------------------
@@ -50,6 +63,15 @@ class SettingsPatch(BaseModel):
     keep_temp: Optional[bool] = None
     auto_burn: Optional[bool] = None
     open_browser: Optional[bool] = None
+
+
+class UploadStart(BaseModel):
+    name: str
+    size: int = 0
+
+
+class UploadFinish(BaseModel):
+    tier: str = "medium"
 
 
 class LocalFile(BaseModel):
@@ -237,6 +259,123 @@ def pick_file():
 
 
 # --------------------------------------------------------------------------
+# resumable uploads (a tunnel only allows ~100 MB per request)
+# --------------------------------------------------------------------------
+def _chunk_root(uid: str) -> Path:
+    if not _UID_RE.match(uid or ""):
+        raise HTTPException(400, "Unknown upload")
+    return CHUNK_DIR / uid
+
+
+def _chunk_meta(uid: str) -> dict:
+    root = _chunk_root(uid)
+    meta = root / "meta.json"
+    if not meta.exists():
+        raise HTTPException(404, "This upload expired. Choose the video again.")
+    try:
+        return json.loads(meta.read_text(encoding="utf-8"))
+    except Exception:
+        raise HTTPException(400, "This upload is damaged. Choose the video again.")
+
+
+def _clean_old_chunks(max_age_hours: float = 24.0):
+    if not CHUNK_DIR.exists():
+        return
+    cutoff = time.time() - max_age_hours * 3600
+    for d in CHUNK_DIR.iterdir():
+        try:
+            if d.is_dir() and d.stat().st_mtime < cutoff:
+                shutil.rmtree(d, ignore_errors=True)
+        except Exception:
+            pass
+
+
+@app.post("/api/uploads/start")
+def upload_start(req: UploadStart):
+    """Begin a resumable upload. Works through tunnels and flaky connections."""
+    name = Path(req.name or "video.mp4").name
+    ext = Path(name).suffix.lower()
+    if ext and ext not in VIDEO_EXTS:
+        raise HTTPException(400, f"“{ext}” is not a video format this app can read.")
+    _clean_old_chunks()
+    uid = uuid.uuid4().hex
+    root = CHUNK_DIR / uid
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "meta.json").write_text(
+        json.dumps({"name": name, "size": int(req.size or 0), "created": time.time()}),
+        encoding="utf-8",
+    )
+    return {"upload_id": uid, "chunk_size": 4 * 1024 * 1024}
+
+
+@app.post("/api/uploads/{uid}/part")
+async def upload_part(uid: str, index: int, request: Request):
+    """Store one piece (raw bytes) of a bigger video."""
+    _chunk_meta(uid)
+    if index < 0 or index > 100000:
+        raise HTTPException(400, "Bad chunk number")
+    root = _chunk_root(uid)
+    dest = root / f"{index:06d}.part"
+    size = 0
+    tmp = dest.with_suffix(".tmp")
+    with tmp.open("wb") as out:
+        async for block in request.stream():
+            if not block:
+                continue
+            size += len(block)
+            if size > 32 * 1024 * 1024:
+                tmp.unlink(missing_ok=True)
+                raise HTTPException(413, "That piece is too large")
+            out.write(block)
+    if size == 0:
+        tmp.unlink(missing_ok=True)
+        raise HTTPException(400, "Empty piece")
+    tmp.replace(dest)
+    return {"ok": True, "index": index, "bytes": size}
+
+
+@app.get("/api/uploads/{uid}")
+def upload_status(uid: str):
+    meta = _chunk_meta(uid)
+    root = _chunk_root(uid)
+    parts = sorted(int(p.stem) for p in root.glob("*.part") if p.stem.isdigit())
+    return {"upload_id": uid, "name": meta.get("name", "video"), "parts": parts,
+            "bytes": sum(p.stat().st_size for p in root.glob("*.part"))}
+
+
+@app.post("/api/uploads/{uid}/finish")
+def upload_finish(uid: str, req: UploadFinish):
+    """Glue the pieces together and start the job."""
+    if req.tier not in TIER_ORDER:
+        raise HTTPException(400, "Unknown accuracy level")
+    meta = _chunk_meta(uid)
+    root = _chunk_root(uid)
+    parts = sorted((int(p.stem), p) for p in root.glob("*.part") if p.stem.isdigit())
+    if not parts:
+        raise HTTPException(400, "No video data arrived. Try again.")
+    if [i for i, _ in parts] != list(range(len(parts))):
+        raise HTTPException(400, "Some pieces of the video are missing. Try again.")
+    name = meta.get("name") or "video.mp4"
+    ext = Path(name).suffix.lower() or ".mp4"
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    dest = UPLOAD_DIR / f"{uuid.uuid4().hex[:10]}{ext}"
+    try:
+        with dest.open("wb") as out:
+            for _, part in parts:
+                with part.open("rb") as fh:
+                    shutil.copyfileobj(fh, out, 4 * 1024 * 1024)
+    except Exception as exc:
+        dest.unlink(missing_ok=True)
+        raise HTTPException(500, f"The video could not be assembled: {exc}")
+    shutil.rmtree(root, ignore_errors=True)
+    if not dest.exists() or dest.stat().st_size < 1024:
+        dest.unlink(missing_ok=True)
+        raise HTTPException(400, "That file looks empty.")
+    job = engine.create_job(dest, name, req.tier)
+    return {"job": job.as_dict(include_cues=False)}
+
+
+# --------------------------------------------------------------------------
 # job status / files
 # --------------------------------------------------------------------------
 @app.get("/api/jobs")
@@ -375,6 +514,46 @@ def get_source(jid: str):
              ".mkv": "video/x-matroska", ".avi": "video/x-msvideo"}
     mime = guess.get(job.source_path.suffix.lower(), "video/mp4")
     return FileResponse(job.source_path, media_type=mime)
+
+
+# --------------------------------------------------------------------------
+# private access (only active when KURDISH_SUB_TOKEN is set)
+# --------------------------------------------------------------------------
+_TOKEN_PAGE = """<!doctype html><meta charset="utf-8">
+<title>Kurdish Sub — private link</title>
+<style>body{font:16px/1.6 system-ui,sans-serif;max-width:640px;margin:12vh auto;padding:0 24px;
+background:#07171c;color:#e8f6f2}a{color:#22d3a7}code{background:#122a31;padding:2px 6px;border-radius:6px}
+h1{font-size:22px}</style>
+<h1>This Kurdish Sub link is private</h1>
+<p>Open the <b>full address</b> that your Colab notebook printed — it has a
+<code>?token=…</code> part at the end. After that, this browser is remembered.</p>
+<p>If you bookmarked this page, delete the bookmark and copy the link from the
+notebook again.</p>
+"""
+
+
+@app.middleware("http")
+async def private_access(request: Request, call_next):
+    if not ACCESS_TOKEN:
+        return await call_next(request)
+    given = (
+        request.query_params.get("token")
+        or request.headers.get("x-ksub-token")
+        or request.cookies.get("ksub_token")
+        or ""
+    )
+    if given != ACCESS_TOKEN:
+        if request.url.path.startswith("/api/"):
+            return JSONResponse(
+                {"detail": "This app is private. Open the link with ?token=… that Colab printed."},
+                status_code=401,
+            )
+        return HTMLResponse(_TOKEN_PAGE, status_code=401)
+    response = await call_next(request)
+    if request.query_params.get("token") == ACCESS_TOKEN:
+        response.set_cookie("ksub_token", ACCESS_TOKEN, max_age=7 * 24 * 3600,
+                            httponly=True, samesite="lax", path="/")
+    return response
 
 
 # --------------------------------------------------------------------------

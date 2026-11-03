@@ -33,6 +33,7 @@ const state = {
   providers: [],
   cueCount: 0,
   lastJob: null,
+  cloud: false,
 };
 
 /* ---------------- helpers ---------------- */
@@ -77,6 +78,11 @@ async function boot() {
     state.health = health;
     state.tiers = health.tiers || [];
     if (health.system && health.system.demo) $("#demoBadge").classList.remove("hidden");
+    state.cloud = !!(health.system && health.system.cloud);
+    if (state.cloud) {
+      $("#cloudBadge").classList.remove("hidden");
+      $("#dzNote").textContent = "MP4, MKV, MOV, AVI, WEBM · any length · processed on a cloud GPU, then deleted";
+    }
     renderTiers();
     if (health.system && health.system.ffmpeg === false) {
       toast("notice", "<b>ffmpeg was not found.</b> Kurdish Sub needs ffmpeg to read and write videos. " +
@@ -129,7 +135,7 @@ function renderTiers() {
       <div class="tier-name">${esc(t.name)}</div>
       <div class="tier-ku ku">${esc(t.ku)}</div>
       <div class="tier-blurb">${esc(t.blurb)}</div>
-      <div class="tier-eta">${est ? `<b>≈ ${fmtDur(est)}</b> on this computer` : `<b>${esc(t.model_size)}</b> model`}</div>`;
+      <div class="tier-eta">${est ? `<b>≈ ${fmtDur(est)}</b> ${state.cloud ? "on the cloud GPU" : "on this computer"}` : `<b>${esc(t.model_size)}</b> model`}</div>`;
     btn.addEventListener("click", () => selectTier(t.key));
     grid.appendChild(btn);
   });
@@ -150,7 +156,7 @@ function refreshEstimates() {
     const est = estimate(t.key);
     if (btn && est) {
       const eta = btn.querySelector(".tier-eta");
-      if (eta) eta.innerHTML = `<b>≈ ${fmtDur(est)}</b> on this computer`;
+      if (eta) eta.innerHTML = `<b>≈ ${fmtDur(est)}</b> ${state.cloud ? "on the cloud GPU" : "on this computer"}`;
     }
   });
 }
@@ -210,7 +216,9 @@ function paintFileCard(name, size) {
   if (state.duration) chips.push(`<span class="chip">⏱ <b>${fmtDur(state.duration)}</b></span>`);
   if (size) chips.push(`<span class="chip">💾 <b>${fmtBytes(size)}</b></span>`);
   if (state.width) chips.push(`<span class="chip">🖥 <b>${state.width}×${state.height}</b></span>`);
-  chips.push(`<span class="chip">🔒 <b>stays on this computer</b></span>`);
+  chips.push(state.cloud
+    ? `<span class="chip">☁ <b>processed on the cloud GPU</b></span>`
+    : `<span class="chip">🔒 <b>stays on this computer</b></span>`);
   $("#fChips").innerHTML = chips.join("");
 }
 
@@ -262,6 +270,14 @@ async function startJob() {
   if (!state.file) return;
   state.uploading = true;
   enterProgress(true);
+
+  // Big files are sent in pieces: tunnels and weak connections refuse one huge
+  // request, and a piece that fails is simply sent again.
+  if (state.file.size > 40 * 1024 * 1024) {
+    uploadInPieces(state.file);
+    return;
+  }
+
   const form = new FormData();
   form.append("file", state.file, state.file.name);
   form.append("tier", state.tier);
@@ -273,7 +289,8 @@ async function startJob() {
     const pct = (e.loaded / e.total) * 100;
     $("#pBar").style.width = `${pct * 0.08}%`;
     $("#pPct").textContent = `${Math.round(pct * 0.08)}%`;
-    $("#pMsg").textContent = `Copying the video into the workspace … ${fmtBytes(e.loaded)} / ${fmtBytes(e.total)}`;
+    $("#pMsg").textContent = `${state.cloud ? "Sending the video to the cloud" : "Copying the video into the workspace"} … ` +
+      `${fmtBytes(e.loaded)} / ${fmtBytes(e.total)}`;
   });
   xhr.addEventListener("load", () => {
     state.uploading = false;
@@ -288,8 +305,70 @@ async function startJob() {
       failJob(msg);
     }
   });
-  xhr.addEventListener("error", () => { state.uploading = false; failJob("The video could not be sent to the local app (is it still running?)."); });
+  xhr.addEventListener("error", () => { state.uploading = false; failJob("The video could not be sent to the app (is it still running?)."); });
   xhr.send(form);
+}
+
+/* ---------------- resumable, piece-by-piece upload ---------------- */
+async function uploadInPieces(file) {
+  const CHUNK = 4 * 1024 * 1024;
+  const setBar = (sentBytes) => {
+    const pct = (sentBytes / Math.max(1, file.size)) * 100;
+    $("#pBar").style.width = `${pct * 0.08}%`;
+    $("#pPct").textContent = `${Math.round(pct * 0.08)}%`;
+    $("#pMsg").textContent = `Sending the video ${state.cloud ? "to the cloud " : ""}… ` +
+      `${fmtBytes(sentBytes)} / ${fmtBytes(file.size)}`;
+  };
+  let start;
+  try {
+    start = await api("/api/uploads/start", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: file.name, size: file.size }),
+    });
+  } catch (err) { state.uploading = false; failJob(`Could not start the upload: ${err.message}`); return; }
+
+  const uid = start.upload_id;
+  const size = Math.max(1024 * 1024, Math.min(32 * 1024 * 1024, start.chunk_size || CHUNK));
+  let sent = 0;
+  setBar(0);
+  for (let index = 0; index * size < file.size; index++) {
+    const blob = file.slice(index * size, Math.min(file.size, (index + 1) * size));
+    let ok = false, lastError = "";
+    for (let attempt = 0; attempt < 4 && !ok; attempt++) {
+      try {
+        const res = await fetch(`/api/uploads/${uid}/part?index=${index}`, {
+          method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: blob,
+        });
+        if (res.ok) { ok = true; break; }
+        lastError = res.status === 413 ? "the connection refused a piece" : `HTTP ${res.status}`;
+      } catch (err) { lastError = err.message || "network error"; }
+      await new Promise((r) => setTimeout(r, 700 * (attempt + 1)));
+    }
+    if (!ok) {
+      state.uploading = false;
+      failJob(`The video stopped uploading (${lastError}). Check the internet connection ` +
+              `and press “Create Kurdish subtitles” again.`);
+      return;
+    }
+    sent += blob.size;
+    setBar(sent);
+  }
+
+  $("#pMsg").textContent = "Putting the video together …";
+  try {
+    const r = await api(`/api/uploads/${uid}/finish`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tier: state.tier }),
+    });
+    state.uploading = false;
+    state.jobId = r.job.id;
+    state.lastJob = r.job;
+    enterProgress();
+    pollJob();
+  } catch (err) {
+    state.uploading = false;
+    failJob(`The video could not be put together: ${err.message}`);
+  }
 }
 
 /* ---------------- progress view ---------------- */
@@ -402,13 +481,19 @@ async function openResult(id) {
   dl.classList.toggle("hidden", !burned);
   $("#rSrt").href = `/api/jobs/${id}/srt`;
   $("#rSrt").classList.toggle("hidden", !job.has_srt);
-  $("#rFolder").classList.toggle("hidden", !burned);
+  $("#rFolder").classList.toggle("hidden", !burned || state.cloud);
   $("#rCount").textContent = `${job.cue_count} lines`;
   state.cueCount = job.cue_count;
 
   let noticeHtml = "";
   if (job.warnings && job.warnings.length)
     noticeHtml += `<div class="notice info">${job.warnings.map(esc).join("<br>")}</div>`;
+  if (state.cloud && burned) {
+    noticeHtml += `<div class="notice info">The finished file (${fmtBytes(job.output_size)}) is also kept on the
+      cloud machine while this session is open. If a very big download stops, open the folder icon on the
+      left of the Colab tab — the same file is under <code>kurdish-sub-cloud/output/</code> — or use the
+      Drive copy.</div>`;
+  }
   if (!burned && job.status === "waiting_review") {
     noticeHtml += `<div class="notice"><div><b>Review mode.</b> The subtitles are ready but not burned yet.
       ${job.has_output ? "" : ""}<div class="result-actions" style="margin-top:10px">

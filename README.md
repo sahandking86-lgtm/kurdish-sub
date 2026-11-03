@@ -14,6 +14,14 @@ censorship of adult or explicit material.
 
 New to this? Follow **[SETUP.md](SETUP.md)** — step-by-step, with what to expect.
 
+> ### Old or weak laptop?
+> Run the same app on a **free Google GPU** — nothing is installed on your
+> computer and it never gets hot. Open the notebook, pick *T4 GPU*, press
+> ▶ Run all, use the link it prints:
+> **[`cloud/Kurdish_Sub_Cloud.ipynb`](cloud/Kurdish_Sub_Cloud.ipynb)** ·
+> full guide in **[docs/CLOUD.md](docs/CLOUD.md)**.
+> A 2-hour film that takes hours on a laptop CPU takes roughly half an hour there.
+
 ### Windows
 1. Install **Python 3.10+** from [python.org](https://www.python.org/downloads/windows/)
    and tick **“Add python.exe to PATH”** during setup.
@@ -172,6 +180,11 @@ app/
 │   └── settings.py     config + paths
 ├── web/                the interface (no build step, no CDN)
 └── assets/fonts/       bundled Sorani fonts (SIL OFL)
+
+cloud/
+├── Kurdish_Sub_Cloud.ipynb   Colab notebook — the beginner path
+├── start_cloud.py            web app + private tunnel link (one command)
+└── doctor.py                 is the GPU really usable? tests and repairs it
 ```
 
 The original Chrome extension that inspired this project is still in
